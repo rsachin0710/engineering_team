@@ -1,8 +1,13 @@
 #!/usr/bin/env python
+import atexit
 import os
+import queue
+import re
+import subprocess
 import sys
 import threading
 import time
+import traceback
 import warnings
 from datetime import datetime
 
@@ -32,12 +37,27 @@ The system has access to a function get_share_price(symbol) which returns the cu
 The system should be secure.
 """.strip()
 
-# Generated artifacts shown in the UI, keyed by tab label.
-ARTIFACTS = {
-    "Design": "design.md",
-    "Threat Model": "threat_model.md",
-    "Test Summary": "test_summary.md",
-}
+# How long to wait for the generated app to print its URL after launching it.
+APP_START_TIMEOUT = 120
+URL_PATTERN = re.compile(r"https?://[^\s]+")
+
+# The generated app currently running from the sandbox, if any.
+_app_process: subprocess.Popen | None = None
+
+
+def _stop_app() -> None:
+    """Stop the previously launched generated app so the sandbox can be rebuilt."""
+    global _app_process
+    if _app_process and _app_process.poll() is None:
+        _app_process.terminate()
+        try:
+            _app_process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            _app_process.kill()
+    _app_process = None
+
+
+atexit.register(_stop_app)
 
 
 def run_crew(requirements: str):
@@ -57,46 +77,62 @@ def run():
         raise Exception(f"An error occurred while running the crew: {e}")
 
 
-def _read_sandbox(filename: str) -> str:
-    path = SANDBOX_DIR / filename
-    return path.read_text() if path.is_file() else ""
+def _launch_app() -> str:
+    """Start sandbox/app.py in the background and return the URL it serves on."""
+    global _app_process
+    if not (SANDBOX_DIR / "app.py").is_file():
+        raise RuntimeError("The crew did not produce app.py.")
 
-
-def _generated_files() -> list[str]:
-    """Paths of the generated source/docs in the sandbox (excludes uv/venv plumbing)."""
-    if not SANDBOX_DIR.exists():
-        return []
-    return sorted(
-        str(p) for p in SANDBOX_DIR.iterdir()
-        if p.is_file() and p.suffix in {".py", ".md"}
+    _app_process = subprocess.Popen(
+        ["uv", "run", "app.py"],
+        cwd=SANDBOX_DIR,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env={**os.environ, "PYTHONUNBUFFERED": "1", "GRADIO_SERVER_NAME": "127.0.0.1"},
     )
 
+    lines: queue.Queue[str] = queue.Queue()
 
-def _snapshot(status: str):
-    files = _generated_files()
-    listing = "\n".join(f"- `{os.path.basename(f)}`" for f in files) or "_No files yet._"
-    return (
-        f"{status}\n\n**Sandbox files:**\n{listing}",
-        *(_read_sandbox(name) or "_Not generated yet._" for name in ARTIFACTS.values()),
-        _read_sandbox("app.py"),
-        files or None,
-    )
+    def pump(stream):
+        # Keep draining output for the app's lifetime so its pipe never fills up;
+        # forward it to this console for debugging.
+        for line in stream:
+            print(f"[app.py] {line}", end="")
+            lines.put(line)
+
+    threading.Thread(target=pump, args=(_app_process.stdout,), daemon=True).start()
+
+    deadline = time.monotonic() + APP_START_TIMEOUT
+    while time.monotonic() < deadline:
+        if _app_process.poll() is not None and lines.empty():
+            raise RuntimeError("app.py exited before it started serving.")
+        try:
+            line = lines.get(timeout=1)
+        except queue.Empty:
+            continue
+        match = URL_PATTERN.search(line)
+        if match:
+            return match.group(0).rstrip("/")
+    _stop_app()
+    raise RuntimeError("app.py did not report a URL in time.")
 
 
 def build_from_requirements(requirements: str):
-    """Gradio handler: run the crew in a background thread and stream progress."""
+    """Gradio handler: run the crew, launch the generated app and show its URL."""
     requirements = (requirements or "").strip()
     if not requirements:
         raise gr.Error("Please enter the requirements for the system to build.")
     if contains_pii(requirements):
         raise gr.Error(PII_MESSAGE)
 
+    _stop_app()
     outcome: dict = {}
 
     def worker():
         try:
             run_crew(requirements)
-        except Exception as e:  # surfaced in the UI below
+        except Exception as e:
             outcome["error"] = e
 
     thread = threading.Thread(target=worker, daemon=True)
@@ -104,49 +140,45 @@ def build_from_requirements(requirements: str):
     started = time.monotonic()
     while thread.is_alive():
         elapsed = int(time.monotonic() - started)
-        yield _snapshot(f"⏳ **Crew is working…** ({elapsed // 60}m {elapsed % 60:02d}s elapsed)")
+        yield f"⏳ **Building your app…** ({elapsed // 60}m {elapsed % 60:02d}s elapsed)"
         thread.join(timeout=3)
 
     if "error" in outcome:
-        yield _snapshot(f"❌ **The crew failed:** {outcome['error']}")
-    else:
-        yield _snapshot(
-            f"✅ **Done.** Run the generated app with:\n\n"
-            f"```\ncd {SANDBOX_DIR} && uv run app.py\n```"
-        )
+        traceback.print_exception(outcome["error"])
+        yield "❌ **The build failed.** Check the terminal running `uv run ui` for details."
+        return
+
+    yield "🚀 **Starting your app…**"
+    try:
+        url = _launch_app()
+    except Exception:
+        traceback.print_exc()
+        yield "❌ **The app was built but could not be started.** Check the terminal for details."
+        return
+
+    yield f"✅ **Your app is running:** [{url}]({url})"
 
 
 def build_ui() -> gr.Blocks:
     with gr.Blocks(title="Engineering Team") as demo:
         gr.Markdown(
             "# Engineering Team\n"
-            "Describe the system you want. The crew will design it, produce a threat model, "
-            "write the backend, build a Gradio `app.py` and unit-test it."
+            "Describe the system you want, then click **Build app**. "
+            "When it's ready, a link to the running app appears below."
         )
-        with gr.Row():
-            with gr.Column(scale=1):
-                requirements = gr.Textbox(
-                    label="Requirements",
-                    value=DEFAULT_REQUIREMENTS,
-                    lines=16,
-                    max_lines=40,
-                )
-                build_btn = gr.Button("Build app", variant="primary")
-                status = gr.Markdown()
-                files = gr.File(label="Generated files", file_count="multiple", interactive=False)
-            with gr.Column(scale=2):
-                with gr.Tabs():
-                    artifact_views = []
-                    for label in ARTIFACTS:
-                        with gr.Tab(label):
-                            artifact_views.append(gr.Markdown())
-                    with gr.Tab("app.py"):
-                        app_code = gr.Code(language="python", interactive=False)
+        requirements = gr.Textbox(
+            label="Requirements",
+            value=DEFAULT_REQUIREMENTS,
+            lines=16,
+            max_lines=40,
+        )
+        build_btn = gr.Button("Build app", variant="primary")
+        status = gr.Markdown()
 
         build_btn.click(
             build_from_requirements,
             inputs=requirements,
-            outputs=[status, *artifact_views, app_code, files],
+            outputs=status,
             concurrency_limit=1,  # the crew shares a single sandbox directory
         )
     return demo

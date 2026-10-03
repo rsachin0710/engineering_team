@@ -49,22 +49,24 @@ uv sync
    - The requirements are first checked for personal information (see [PII guardrail](#pii-guardrail)).
      If any is found you'll see *"Your requirements appear to contain personal information (PII). Please
      remove any PII and try again."* — edit the text and click **Build app** again.
-   - Otherwise the crew starts. The left panel shows elapsed time and the files written so far.
-     A full run usually takes several minutes.
+   - Otherwise the crew starts and the page shows the elapsed time. A full run usually takes several
+     minutes.
 
-5. When the status shows **✅ Done**, review the results in the tabs on the right:
-   **Design**, **Threat Model**, **Test Summary** and **app.py**. All generated files can also be
-   downloaded from **Generated files**.
+5. When the build finishes, the page starts the generated app for you and shows
+   **✅ Your app is running:** with a link (e.g. http://127.0.0.1:7861). Click it to use the app.
+   If something goes wrong, the page shows a short failure message; the full details are printed in
+   the terminal running `uv run ui`.
 
-Only one build runs at a time. **Every build wipes the `sandbox/` folder first**, so copy anything
+Only one build runs at a time. **Every build stops the previously launched app and wipes the `sandbox/` folder first**, so copy anything
 you want to keep before starting another build.
 
 To run a build from the command line with the built-in example requirements instead, use
 `uv run run_crew` (or `crewai run`).
 
-## Part 2 — Run the generated app
+## Part 2 — Run the generated app manually (optional)
 
-The generated app lives in `sandbox/`, which is its own uv project with Gradio installed.
+The page from Part 1 already starts the app for you; it stops when you stop `uv run ui`.
+To run it on its own later: the generated app lives in `sandbox/`, which is its own uv project with Gradio installed.
 
 1. Open a new terminal (you can leave the requirements page running) and go to the sandbox:
 
@@ -109,4 +111,4 @@ sensitive.
 - `src/engineering_team/config/agents.yaml` — agents and the LLM each one uses
 - `src/engineering_team/config/tasks.yaml` — what each step does and where it writes its output
 - `src/engineering_team/crew.py` — agent tools and crew settings
-- `src/engineering_team/main.py` — the Gradio requirements page and CLI entry points
+- `src/engineering_team/main.py` — the Gradio requirements page (runs the crew, then launches `app.py`) and CLI entry points
