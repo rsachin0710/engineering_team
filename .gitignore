@@ -1,0 +1,21 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local environments / caches
+.venv/
+**/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local CrewAI run metadata (contains trace URLs)
+.crewai/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

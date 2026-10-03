@@ -1,0 +1,105 @@
+design_task:
+  description: >
+    Take the high level requirements described here and prepare a detailed design for the engineering team;
+    Here are the requirements: {requirements}
+    IMPORTANT: Only output the design in markdown format, laying out the module(s), classes, functions.
+    Do not actually write any code. Function or method signatures only.
+    You should assign work to the following engineers: threat_modeller, backend_engineer, frontend_engineer, test_engineer.
+    The threat_modeller should create a Data Flow Diagram (DFD) and STRIDE threat table. Answer the questions asked by the threat_modeller related to the {requirements}.
+    The backend_engineer should write the backend python code.
+    The frontend_engineer should make a gradio app.
+    The test_engineer should write unit tests for the backend module.
+    All engineers will be working in the same sandbox directory. There is no directory structure, all files are in the same directory.
+    Everything runs in a uv project with gradio installed.
+  expected_output: >
+    A detailed design to achieve the requirements, identifying code structure, and assignments to the engineers.
+  agent: engineering_lead
+  output_file: sandbox/design.md
+
+architecture_task:
+  description: >
+    Here are the requirements: {requirements}
+    Use the Engineering Lead's design (provided as context) as the Technical Architecture Document.
+    Extract a complete description of the system architecture from it: data entry points,
+    authentication mechanisms, data storage, third-party integrations, and trust boundaries
+    (e.g., user/browser to Gradio UI, UI to backend module, backend to external price source).
+    Ensure all protocols (like HTTP, function calls, file I/O) and data formats are clearly identified.
+    Where the design is silent, state your assumptions explicitly rather than skipping the item.
+    Use this information to construct a Data Flow Diagram (DFD) and perform a comprehensive STRIDE
+    threat assessment. For every component and data flow, analyze potential vectors for
+    Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and
+    Elevation of Privilege.
+    IMPORTANT: Your final answer must be the complete Markdown threat model report itself
+    (not a summary of it). Do not write any code.
+  expected_output: >
+    A structured Technical Architecture Document that lists components, data flows, actors, assets, and trust boundaries in clear technical detail.
+    A comprehensive Markdown Threat Model report containing:
+    1. **Data Flow Diagram (DFD):** A text-based, structured representation of the DFD 
+    (using Mermaid.js syntax or clear hierarchical bullet points) showing actors, processes, 
+    data stores, and trust boundaries.
+    2. **STRIDE Threat Matrix:** A beautifully formatted Markdown table with the following 
+    exact headers:
+    | Threat ID | STRIDE Category | Target Component/Flow | Threat Description | Severity (Low/Med/High) | Actionable Mitigation Strategy |
+  agent: threat_modeller
+  context:
+    - design_task
+  output_file: sandbox/threat_model.md
+
+code_task:
+  description: >
+    Write a python code that implements the design described by the engineering lead, in order to achieve the requirements.
+    Apply the actionable mitigations from the threat model where they are relevant to the backend.
+    Here are the requirements: {requirements}
+  expected_output: >
+    Python files written to the sandbox and tested that implement the design and achieve the requirements.
+    IMPORTANT: Use your sandbox tools to write and check the code.
+  agent: backend_engineer
+  context:
+    - design_task
+    - architecture_task
+
+frontend_task:
+  description: >
+    Write a gradio UI in a module app.py that demonstrates the backend code, as described in the design.
+    Assume there is only 1 user, and have the UI be professional, polished, clean.
+    Wire state between steps so the user never has to copy values by hand: any ID or entity created in one step
+    (e.g. an account) must automatically become the active selection that every other action reads from
+    (for example, the create handler also outputs an update to a shared "active account" Dropdown or gr.State).
+    Every handler must show a clear status message when a required selection is missing.
+    Then write a separate validation script (e.g. _validate.py) that imports app.py and tests the UI end to end
+    the way a browser would, and run it via your sandbox tools:
+      1. `app.demo.queue().launch(prevent_thread_lock=True, server_port=7899, quiet=True)`
+      2. Use `from gradio_client import Client` (installed with gradio) to call each event by its api_name,
+         chaining real outputs into later inputs — e.g. create an entity, then use the returned ID/selection
+         for every follow-up action — and assert each step reports success and returns the expected data.
+         Also assert a validation error (e.g. selling something not owned) is reported without crashing.
+      3. Call `app.demo.close()` at the end; exit non-zero if any assertion fails.
+    IMPORTANT: never call `.launch()` without `prevent_thread_lock=True` in the validation script — that would block until timeout.
+    Keep fixing app.py and re-running the validation script until it passes.
+    Here are the requirements: {requirements}
+  expected_output: >
+    A gradio UI in module app.py written to the sandbox that demonstrates the functionality.
+    The file should be ready so that it can be run as-is, in the same sandbox directory as the backend code.
+    IMPORTANT: Use your sandbox tools to write and check the code.
+  agent: frontend_engineer
+  context:
+    - code_task
+    - design_task
+
+test_task:
+  description: >
+    Write unit tests for the backend module, in a single test file, using the stdlib `unittest` module.
+    Do not write tests for app.py (the gradio frontend).
+    Fix any errors in the backend code so that the unit tests pass.
+    Keep working until all unit tests pass.
+    If you change any backend code, ensure that the unit tests pass and that the gradio app in app.py will still work.
+    Avoid making any changes that might break the gradio app in app.py.
+  expected_output: >
+    A single test file that can be run to test the backend module.
+    IMPORTANT: Use your sandbox tools to write and run the unit tests.
+    Output a summary of the results of the unit tests.
+  agent: test_engineer
+  context:
+    - code_task
+    - design_task
+  output_file: sandbox/test_summary.md
