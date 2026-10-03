@@ -2,7 +2,8 @@
 
 A [CrewAI](https://crewai.com) crew that turns plain-English requirements into a working Python app.
 You describe the system in a Gradio web page; a team of AI agents then designs it, threat-models it,
-writes the backend, builds a Gradio front end (`app.py`) and unit-tests it.
+writes the backend, builds a Gradio front end (`app.py`) and unit-tests it. When the build finishes,
+the page starts the generated app and gives you a link to open it.
 
 | Step | Agent | Output (in `sandbox/`) |
 |------|-------|------------------------|
@@ -57,18 +58,21 @@ uv sync
    If something goes wrong, the page shows a short failure message; the full details are printed in
    the terminal running `uv run ui`.
 
-Only one build runs at a time. **Every build stops the previously launched app and wipes the `sandbox/` folder first**, so copy anything
-you want to keep before starting another build.
+Only one build runs at a time. **Every build stops the previously launched app and wipes the
+`sandbox/` folder first**, so copy anything you want to keep before starting another build.
+Generated files in `sandbox/` are not tracked by git (only `sandbox/pyproject.toml` is, because the
+root project lists `sandbox` as a uv workspace member).
 
 To run a build from the command line with the built-in example requirements instead, use
 `uv run run_crew` (or `crewai run`).
 
 ## Part 2 — Run the generated app manually (optional)
 
-The page from Part 1 already starts the app for you; it stops when you stop `uv run ui`.
-To run it on its own later: the generated app lives in `sandbox/`, which is its own uv project with Gradio installed.
+The page from Part 1 already starts the app for you, and the app stops when you stop `uv run ui`.
+To run the last generated app on its own later: it lives in `sandbox/`, which is its own uv project
+with Gradio installed.
 
-1. Open a new terminal (you can leave the requirements page running) and go to the sandbox:
+1. Open a terminal and go to the sandbox:
 
    ```bash
    cd sandbox
@@ -80,8 +84,9 @@ To run it on its own later: the generated app lives in `sandbox/`, which is its 
    uv run app.py
    ```
 
-3. Open the URL printed in the terminal. It is normally http://127.0.0.1:7860; if the requirements page is
-   still running on that port, Gradio picks the next free one (e.g. http://127.0.0.1:7861).
+3. Open the URL printed in the terminal. It is normally http://127.0.0.1:7860; if that port is taken
+   (for example by the requirements page or the app it launched), Gradio picks the next free one
+   (e.g. http://127.0.0.1:7861).
 
 4. Stop the app with `Ctrl+C`.
 
